@@ -1,0 +1,54 @@
+{
+  "companies": [
+    {
+      "id": "79d5137c-38f0-4233-b585-4d827ad8daa6",
+      "type": "marketing",
+      "name": "3.7 Designs",
+      "url": "https://3.7designs.co",
+      "linkedin": "",
+      "email": "",
+      "contacted_via": {
+        "email": false,
+        "url": true,
+        "linkedin": false
+      },
+      "notes": [
+        {
+          "time": "2025-08-19 21:47",
+          "text": "Hello,\r\nI am reaching out because we are looking for strong marketing agency partners to provide certified white-label development for your agency projects. \r\n\r\nThis includes SEO implementation, tracking and analytics setup, performance optimization, custom integrations, web development, and ongoing technical support.\r\n\r\nWe are a Europe-based team of certified e-commerce developers with expertise in Adobe Commerce (Magento is our superpower), Laravel, and other modern frameworks. \r\n\r\nOur team delivers scalable, reliable, and technical debt-free code. We are timezone agnostic, lean, and strong in communication, making it easy to integrate with your internal stakeholders.\r\n\r\nI would be glad to discuss how we can support your project. \r\nRegards, Oskars"
+        }
+      ],
+      "status": "Contacted",
+      "created_at": "2025-08-19 21:47",
+      "updated_at": "2025-08-20 00:49",
+      "owner": "Oskars"
+    },
+    {
+      "id": "80edecb5-dc0e-49dc-8961-453e199e02f2",
+      "type": "marketing",
+      "name": "Jax Media",
+      "url": "https://jaxmediateam.com",
+      "linkedin": "",
+      "email": "",
+      "contacted_via": {
+        "email": false,
+        "url": true,
+        "linkedin": false
+      },
+      "notes": [
+        {
+          "time": "2025-08-19 21:54",
+          "text": "Hello,\r\nI am reaching out because we are looking for strong marketing agency partners to provide certified white-label development for your agency projects. \r\n\r\nThis includes SEO implementation, tracking and analytics setup, performance optimization, custom integrations, web development, and ongoing technical support.\r\n\r\nWe are a Europe-based team of certified e-commerce developers with expertise in Adobe Commerce (Magento is our superpower), Laravel, and other modern frameworks. \r\n\r\nOur team delivers scalable, reliable, and technical debt-free code. We are timezone agnostic, lean, and strong in communication, making it easy to integrate with your internal stakeholders.\r\n\r\nI would be glad to discuss how we can support your project. \r\nRegards, Oskars"
+        },
+        {
+          "time": "2025-08-19 21:55",
+          "text": "Partrick contacted me on email.\r\n\r\nreplied:\r\nHello Patrick,\r\n\r\nThank you for getting back to me. I just wanted to ask if your company needs any web development or support. If so, I would be happy to set up a Zoom call to discuss it further.\r\n\r\nBest regards,\r\nOskars"
+        }
+      ],
+      "status": "Followup Sent",
+      "created_at": "2025-08-19 21:54",
+      "updated_at": "2025-08-20 01:28",
+      "owner": "Oskars"
+    }
+  ]
+}
