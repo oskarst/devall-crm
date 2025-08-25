@@ -1,4 +1,4 @@
-# mini_crm.py — Simple Bootstrap CRM (SQLite storage)
+# mini_crm.py — Simple Bootstrap CRM (SQLite storage) + Mass Delete + Sources tags
 # Features preserved:
 # - Add Company with Type, Owner, URL, LinkedIn, Email, contact checkboxes, Notes, Status (incl. New)
 # - Remember last selected Type & Owner (prefs)
@@ -7,6 +7,8 @@
 # - List view: search, sort by created/updated, delete
 # - CSV import: header or headerless; duplicate skipping; maps columns
 # - Duplicate detection: on-blur in Add form and on submit (name/URL) with link to existing
+# - Mass action delete on List page
+# - Sources field (tags, multiple) persisted in SQLite
 
 import os
 import json
@@ -21,10 +23,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
 
 BASE_DIR = os.path.dirname(__file__)
 DATA_DIR = os.path.join(BASE_DIR, 'data')
-DB_PATH   = os.path.join(DATA_DIR, 'crm.db')     # <-- SQLite file now
-# Kept for compatibility; no longer used for persistence.
-DATA_FILE = os.path.join(DATA_DIR, 'companies.json')
-PREFS_FILE = os.path.join(DATA_DIR, 'prefs.json')
+DB_PATH   = os.path.join(DATA_DIR, 'crm.db')
 
 STATUSES = ["New", "Contacted", "Followup Sent", "Replied", "Discovery"]
 TYPES = ["marketing", "development", "merchant"]
@@ -39,59 +38,68 @@ def db():
 
 def ensure_storage():
     os.makedirs(DATA_DIR, exist_ok=True)
-    con = db()
-    cur = con.cursor()
-    # companies table
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS companies (
-      id TEXT PRIMARY KEY,
-      type TEXT,
-      owner TEXT,
-      name TEXT,
-      url TEXT,
-      linkedin TEXT,
-      email TEXT,
-      contacted_email INTEGER DEFAULT 0,
-      contacted_url INTEGER DEFAULT 0,
-      contacted_linkedin INTEGER DEFAULT 0,
-      status TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    )""")
-    # notes table
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS notes (
-      id TEXT PRIMARY KEY,
-      company_id TEXT NOT NULL,
-      time TEXT NOT NULL,
-      text TEXT NOT NULL,
-      FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
-    )""")
-    # prefs table
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS prefs (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    )""")
-    # defaults for prefs if missing
-    cur.execute("INSERT OR IGNORE INTO prefs(key,value) VALUES('last_type', ?)", (TYPES[0],))
-    cur.execute("INSERT OR IGNORE INTO prefs(key,value) VALUES('last_owner', ?)", (OWNERS[0],))
-    con.commit()
-    con.close()
+    with db() as con:
+        cur = con.cursor()
+        # companies table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS companies (
+          id TEXT PRIMARY KEY,
+          type TEXT,
+          owner TEXT,
+          name TEXT,
+          url TEXT,
+          linkedin TEXT,
+          email TEXT,
+          contacted_email INTEGER DEFAULT 0,
+          contacted_url INTEGER DEFAULT 0,
+          contacted_linkedin INTEGER DEFAULT 0,
+          status TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )""")
+        # notes table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS notes (
+          id TEXT PRIMARY KEY,
+          company_id TEXT NOT NULL,
+          time TEXT NOT NULL,
+          text TEXT NOT NULL,
+          FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
+        )""")
+        # prefs table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS prefs (
+          key TEXT PRIMARY KEY,
+          value TEXT
+        )""")
+        # sources table (tags)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS sources (
+          company_id TEXT NOT NULL,
+          source TEXT NOT NULL,
+          PRIMARY KEY (company_id, source),
+          FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
+        )""")
+        # defaults for prefs if missing
+        cur.execute("INSERT OR IGNORE INTO prefs(key,value) VALUES('last_type', ?)", (TYPES[0],))
+        cur.execute("INSERT OR IGNORE INTO prefs(key,value) VALUES('last_owner', ?)", (OWNERS[0],))
+        con.commit()
 
-def row_to_company(row, notes_by_company=None):
-    """Return a JSON-compatible company dict like the old code expected."""
+def row_to_company(row, notes_by_company=None, sources_by_company=None):
     c = dict(row)
     c['contacted_via'] = {
         'email': bool(c.pop('contacted_email', 0)),
         'url': bool(c.pop('contacted_url', 0)),
         'linkedin': bool(c.pop('contacted_linkedin', 0)),
     }
-    # Attach notes if provided
     if notes_by_company is not None:
         c['notes'] = notes_by_company.get(c['id'], [])
     else:
         c['notes'] = []
+    if sources_by_company is not None:
+        c['sources'] = sources_by_company.get(c['id'], [])
+    else:
+        c['sources'] = []
     return c
 
 def load_prefs():
@@ -99,7 +107,6 @@ def load_prefs():
     with db() as con:
         cur = con.execute("SELECT key, value FROM prefs")
         prefs = {r['key']: r['value'] for r in cur.fetchall()}
-    # Normalize defaults
     prefs.setdefault('last_type', TYPES[0])
     prefs.setdefault('last_owner', OWNERS[0])
     return prefs
@@ -108,14 +115,17 @@ def save_prefs(prefs):
     ensure_storage()
     with db() as con:
         for k, v in prefs.items():
-            con.execute("INSERT INTO prefs(key,value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, v))
+            con.execute(
+                "INSERT INTO prefs(key,value) VALUES(?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (k, v)
+            )
         con.commit()
 
 def load_data():
-    """Return {'companies': [company dicts with notes]} to keep the calling code unchanged."""
+    """Return {'companies': [company dicts with notes and sources]} for existing UI code."""
     ensure_storage()
     with db() as con:
-        # Fetch companies
         companies = con.execute("""
             SELECT id, type, owner, name, url, linkedin, email,
                    contacted_email, contacted_url, contacted_linkedin,
@@ -123,7 +133,7 @@ def load_data():
             FROM companies
         """).fetchall()
         ids = [r['id'] for r in companies] or ['']
-        # Fetch notes in one query, group by company_id
+        notes_by_company, sources_by_company = {}, {}
         if ids and ids != ['']:
             q_marks = ",".join("?" for _ in ids)
             note_rows = con.execute(f"""
@@ -131,18 +141,19 @@ def load_data():
                 FROM notes
                 WHERE company_id IN ({q_marks})
             """, ids).fetchall()
-        else:
-            note_rows = []
-        notes_by_company = {}
-        for n in note_rows:
-            notes_by_company.setdefault(n['company_id'], []).append({'time': n['time'], 'text': n['text']})
-        # Assemble dicts
-        out = [row_to_company(r, notes_by_company) for r in companies]
+            for n in note_rows:
+                notes_by_company.setdefault(n['company_id'], []).append(
+                    {'time': n['time'], 'text': n['text']}
+                )
+            src_rows = con.execute(f"""
+                SELECT company_id, source
+                FROM sources
+                WHERE company_id IN ({q_marks})
+            """, ids).fetchall()
+            for s in src_rows:
+                sources_by_company.setdefault(s['company_id'], []).append(s['source'])
+        out = [row_to_company(r, notes_by_company, sources_by_company) for r in companies]
     return {"companies": out}
-
-def save_data(_data):
-    """No-op placeholder to keep the original call sites intact (we commit on each update)."""
-    return
 
 def get_company(cid):
     ensure_storage()
@@ -155,10 +166,15 @@ def get_company(cid):
         """, (cid,)).fetchone()
         if not row:
             return None
-        notes = con.execute("SELECT id, time, text FROM notes WHERE company_id=? ORDER BY time ASC", (cid,)).fetchall()
-        notes_list = [{'time': n['time'], 'text': n['text']} for n in notes]
+        notes = con.execute(
+            "SELECT id, time, text FROM notes WHERE company_id=? ORDER BY time ASC", (cid,)
+        ).fetchall()
+        sources = con.execute(
+            "SELECT source FROM sources WHERE company_id=? ORDER BY source COLLATE NOCASE", (cid,)
+        ).fetchall()
         c = row_to_company(row)
-        c['notes'] = notes_list
+        c['notes'] = [{'time': n['time'], 'text': n['text']} for n in notes]
+        c['sources'] = [s['source'] for s in sources]
         return c
 
 def norm_text(s):
@@ -174,7 +190,7 @@ def norm_url(u):
         u = u[:-1]
     return u
 
-# ------------------------ Templates (unchanged) ------------------------
+# ------------------------ Templates ------------------------
 
 BASE_HTML = """
 <!doctype html>
@@ -193,6 +209,8 @@ BASE_HTML = """
       .card { cursor:pointer; }
       .note { background:#fff; border-radius:.5rem; padding:.75rem; border:1px solid #e9ecef; }
       .badge-type { text-transform:capitalize; }
+      .chip { display:inline-flex; align-items:center; gap:.35rem; padding:.15rem .5rem; border-radius:999px; background:#e9ecef; font-size:.85rem; }
+      .chip .x { cursor:pointer; font-weight:700; opacity:.6; }
     </style>
   </head>
   <body>
@@ -233,13 +251,25 @@ ADD_HTML = """
               {% for t in types %}<option value=\"{{t}}\" {% if t==defaults.last_type %}selected{% endif %}>{{t}}</option>{% endfor %}
             </select>
           </div>
+          <!-- Sources (tags) field -->
+          <div class=\"col-md-9\">
+            <label class=\"form-label\">Sources</label>
+            <div class=\"mb-2\" id=\"srcTags\"></div>
+            <div class=\"input-group\">
+              <input class=\"form-control\" id=\"srcInput\" placeholder=\"Type a source and press Enter\">
+              <button class=\"btn btn-outline-secondary\" type=\"button\" id=\"srcAddBtn\">Add</button>
+            </div>
+            <input type=\"hidden\" name=\"sources\" id=\"srcHidden\">
+            <div class=\"form-text\">Examples: Clutch, Google, MadeWith, Indeed (you can enter any tags)</div>
+          </div>
+
           <div class=\"col-md-3\">
             <label class=\"form-label\">Lead Owner</label>
             <select class=\"form-select\" name=\"owner\" required>
               {% for o in owners %}<option value=\"{{o}}\" {% if o==defaults.last_owner %}selected{% endif %}>{{o}}</option>{% endfor %}
             </select>
           </div>
-          <div class=\"col-md-6\">
+          <div class=\"col-md-9\">
             <label class=\"form-label\">Status</label>
             <select class=\"form-select\" name=\"status\" required>
               {% for s in statuses %}<option value=\"{{s}}\" {% if s=='New' %}selected{% endif %}>{{s}}</option>{% endfor %}
@@ -310,6 +340,42 @@ ADD_HTML = """
   }
   nameInput && nameInput.addEventListener('blur', checkDup);
   urlInput && urlInput.addEventListener('blur', checkDup);
+
+  // Sources tag editor (Add)
+  (function(){
+    const tagsBox = document.getElementById('srcTags');
+    const input = document.getElementById('srcInput');
+    const addBtn = document.getElementById('srcAddBtn');
+    const hidden = document.getElementById('srcHidden');
+    if(!tagsBox || !input || !hidden) return;
+    let tags = [];
+    function render(){
+      tagsBox.innerHTML = '';
+      tags.forEach((t,i)=>{
+        const el = document.createElement('span');
+        el.className = 'chip me-2 mb-2';
+        el.innerHTML = `<span>${t}</span><span class="x" data-i="${i}">&times;</span>`;
+        tagsBox.appendChild(el);
+      });
+      hidden.value = JSON.stringify(tags);
+    }
+    function addTag(val){
+      const v = (val||'').trim();
+      if(!v) return;
+      if(!tags.includes(v)) tags.push(v);
+      input.value=''; render();
+    }
+    tagsBox.addEventListener('click', e=>{
+      const i = e.target.getAttribute('data-i');
+      if(i!==null){ tags.splice(Number(i),1); render(); }
+    });
+    input.addEventListener('keydown', e=>{
+      if(e.key==='Enter'){ e.preventDefault(); addTag(input.value); }
+      if(e.key===',' ){ e.preventDefault(); addTag(input.value.replace(',','')); }
+    });
+    addBtn && addBtn.addEventListener('click', ()=> addTag(input.value));
+    render();
+  })();
 </script>
 """
 
@@ -351,6 +417,16 @@ DETAIL_HTML = """
           <select class=\"form-select\" name=\"owner\">{% for o in owners %}<option value=\"{{o}}\" {% if o==company.get('owner') %}selected{% endif %}>{{o}}</option>{% endfor %}</select>
         </div>
         <div class=\"col-12\">
+          <label class=\"form-label\">Sources</label>
+          <div class=\"mb-2\" id=\"srcTagsDetail\"></div>
+          <div class=\"input-group\">
+            <input class=\"form-control\" id=\"srcInputDetail\" placeholder=\"Type a source and press Enter\">
+            <button class=\"btn btn-outline-secondary\" type=\"button\" id=\"srcAddBtnDetail\">Add</button>
+          </div>
+          <input type=\"hidden\" name=\"sources\" id=\"srcHiddenDetail\" value='{{ (company.get(\"sources\") or []) | tojson }}'>
+          <div class=\"form-text\">Add/remove tags; they will be saved on Update.</div>
+        </div>
+        <div class=\"col-12\">
           <label class=\"form-label\">Contacted via</label>
           <div class=\"form-check form-check-inline\"><input class=\"form-check-input\" type=\"checkbox\" name=\"contacted_email\" value=\"1\" {% if company['contacted_via'].get('email') %}checked{% endif %}><label class=\"form-check-label\">Email</label></div>
           <div class=\"form-check form-check-inline\"><input class=\"form-check-input\" type=\"checkbox\" name=\"contacted_url\" value=\"1\" {% if company['contacted_via'].get('url') %}checked{% endif %}><label class=\"form-check-label\">Website form</label></div>
@@ -372,6 +448,44 @@ DETAIL_HTML = """
   </div>
   <div class=\"col-lg-4\"><div class=\"card shadow-sm\"><div class=\"card-body\"><h2 class=\"h6\">Meta</h2><div class=\"small text-muted\">Created: {{ company['created_at'] }}<br>Updated: {{ company['updated_at'] }}</div></div></div></div>
 </div>
+<script>
+  // Sources tag editor (Detail)
+  (function(){
+    const tagsBox = document.getElementById('srcTagsDetail');
+    const input = document.getElementById('srcInputDetail');
+    const addBtn = document.getElementById('srcAddBtnDetail');
+    const hidden = document.getElementById('srcHiddenDetail');
+    if(!tagsBox || !input || !hidden) return;
+    let tags = [];
+    try { tags = JSON.parse(hidden.value || '[]'); } catch(e){ tags = []; }
+    function render(){
+      tagsBox.innerHTML = '';
+      tags.forEach((t,i)=>{
+        const el = document.createElement('span');
+        el.className = 'chip me-2 mb-2';
+        el.innerHTML = `<span>${t}</span><span class="x" data-i="${i}">&times;</span>`;
+        tagsBox.appendChild(el);
+      });
+      hidden.value = JSON.stringify(tags);
+    }
+    function addTag(val){
+      const v = (val||'').trim();
+      if(!v) return;
+      if(!tags.includes(v)) tags.push(v);
+      input.value=''; render();
+    }
+    tagsBox.addEventListener('click', e=>{
+      const i = e.target.getAttribute('data-i');
+      if(i!==null){ tags.splice(Number(i),1); render(); }
+    });
+    input.addEventListener('keydown', e=>{
+      if(e.key==='Enter'){ e.preventDefault(); addTag(input.value); }
+      if(e.key===',' ){ e.preventDefault(); addTag(input.value.replace(',','')); }
+    });
+    addBtn && addBtn.addEventListener('click', ()=> addTag(input.value));
+    render();
+  })();
+</script>
 """
 
 BOARD_HTML = """
@@ -440,11 +554,19 @@ LIST_HTML = """
     <button class='btn btn-outline-secondary' type='submit'>Apply</button>
   </form>
 </div>
+
+<form method="post" action="{{ url_for('mass_delete') }}" id="massForm">
 <table class='table table-hover align-middle'>
-  <thead><tr><th>Name</th><th>Type</th><th>Owner</th><th>Status</th><th>Email</th><th>URL</th><th>Created</th><th>Updated</th><th></th></tr></thead>
+  <thead>
+    <tr>
+      <th style="width:36px;"><input type="checkbox" id="chkAll"></th>
+      <th>Name</th><th>Type</th><th>Owner</th><th>Status</th><th>Email</th><th>URL</th><th>Created</th><th>Updated</th><th></th>
+    </tr>
+  </thead>
   <tbody>
     {% for c in companies %}
     <tr>
+      <td><input type="checkbox" name="ids" value="{{ c['id'] }}" class="rowchk"></td>
       <td><a href='{{ url_for('company_detail', cid=c['id']) }}'>{{ c.get('name') or 'Unnamed' }}</a></td>
       <td>{{ c['type'] }}</td>
       <td>{{ c.get('owner','-') }}</td>
@@ -454,14 +576,36 @@ LIST_HTML = """
       <td>{{ c['created_at'] }}</td>
       <td>{{ c['updated_at'] }}</td>
       <td>
-        <form method='post' action='{{ url_for('delete_company', cid=c['id']) }}' onsubmit="return confirm('Delete this company?');">
-          <button class='btn btn-sm btn-outline-danger' type='submit'>Delete</button>
-        </form>
+        <!-- Use mass_delete endpoint for single-row delete as well -->
+        <button class='btn btn-sm btn-outline-danger'
+                type='submit'
+                name='ids' value='{{ c["id"] }}'
+                formaction='{{ url_for("mass_delete") }}'
+                formmethod='post'
+                onclick="return confirm('Delete this company?');">
+          Delete
+        </button>
       </td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+<div class="d-flex gap-2">
+  <button class="btn btn-danger" type="submit" onclick="return confirmMass()">Delete selected</button>
+  <a class="btn btn-outline-secondary" href="{{ url_for('list_view', q=q, sort=sort) }}">Refresh</a>
+</div>
+</form>
+
+<script>
+  const chkAll = document.getElementById('chkAll');
+  const rowChks = Array.from(document.querySelectorAll('.rowchk'));
+  chkAll && chkAll.addEventListener('change', ()=> rowChks.forEach(c => c.checked = chkAll.checked));
+  function confirmMass(){
+    const any = rowChks.some(c => c.checked);
+    if(!any){ return confirm('No checkboxes selected. Delete the row you clicked instead?'); }
+    return confirm('Delete selected records? This cannot be undone.');
+  }
+</script>
 """
 
 IMPORT_HTML = """
@@ -484,7 +628,7 @@ IMPORT_HTML = """
 </div>
 """
 
-# ------------------------ Routes (unchanged endpoints) ------------------------
+# ------------------------ Routes ------------------------
 
 @app.route('/')
 def home():
@@ -525,6 +669,13 @@ def add_company():
             'created_at': now,
             'updated_at': now,
         }
+        # Parse sources (JSON array preferred; comma-separated fallback)
+        sources_raw = (request.form.get('sources') or '').strip()
+        try:
+            sources = [s for s in json.loads(sources_raw) if isinstance(s, str)]
+        except Exception:
+            sources = [s.strip() for s in sources_raw.split(',') if s.strip()]
+
         with db() as con:
             con.execute("""
                 INSERT INTO companies(id,type,owner,name,url,linkedin,email,
@@ -532,6 +683,9 @@ def add_company():
                 VALUES(:id,:type,:owner,:name,:url,:linkedin,:email,
                        :contacted_email,:contacted_url,:contacted_linkedin,:status,:created_at,:updated_at)
             """, payload)
+            if sources:
+                con.executemany("INSERT OR IGNORE INTO sources(company_id, source) VALUES(?,?)",
+                                [(cid, s) for s in sources])
             first_note = (request.form.get('notes') or '').strip()
             if first_note:
                 con.execute("INSERT INTO notes(id,company_id,time,text) VALUES(?,?,?,?)",
@@ -560,9 +714,14 @@ def company_detail(cid):
 @app.route('/company/<cid>', methods=['POST'])
 def update_company(cid):
     prefs = load_prefs()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M')
+    # Parse sources
+    sources_raw = (request.form.get('sources') or '').strip()
+    try:
+        sources = [s for s in json.loads(sources_raw) if isinstance(s, str)]
+    except Exception:
+        sources = [s.strip() for s in sources_raw.split(',') if s.strip()]
     with db() as con:
-        # Update main fields
-        now = datetime.now().strftime('%Y-%m-%d %H:%M')
         con.execute("""
             UPDATE companies SET
               status = COALESCE(?, status),
@@ -580,8 +739,12 @@ def update_company(cid):
             1 if request.form.get('contacted_linkedin') else 0,
             now, cid
         ))
+        # Update sources: replace set
+        con.execute("DELETE FROM sources WHERE company_id=?", (cid,))
+        if sources:
+            con.executemany("INSERT OR IGNORE INTO sources(company_id, source) VALUES(?,?)",
+                            [(cid, s) for s in sources])
         con.commit()
-    # update prefs to most recent edits
     if request.form.get('owner'):
         prefs['last_owner'] = request.form.get('owner')
         save_prefs(prefs)
@@ -636,12 +799,29 @@ def list_view():
 def delete_company(cid):
     with db() as con:
         con.execute("DELETE FROM notes WHERE company_id=?", (cid,))
+        con.execute("DELETE FROM sources WHERE company_id=?", (cid,))
         con.execute("DELETE FROM companies WHERE id=?", (cid,))
         con.commit()
     flash('Deleted 1 company.')
     return redirect(url_for('list_view'))
 
-# CSV import
+@app.route('/mass_delete', methods=['POST'])
+def mass_delete():
+    ids = request.form.getlist('ids')
+    if not ids:
+        flash('No records selected.')
+        return redirect(url_for('list_view'))
+    with db() as con:
+        q = ",".join("?" for _ in ids)
+        con.execute(f"DELETE FROM notes WHERE company_id IN ({q})", ids)
+        con.execute(f"DELETE FROM sources WHERE company_id IN ({q})", ids)
+        cur = con.execute(f"DELETE FROM companies WHERE id IN ({q})", ids)
+        deleted = cur.rowcount
+        con.commit()
+    flash(f'Deleted {deleted} record(s).')
+    return redirect(url_for('list_view'))
+
+# CSV import (unchanged; does not set sources)
 @app.route('/import', methods=['GET','POST'])
 def import_csv():
     if request.method == 'POST':
@@ -651,13 +831,11 @@ def import_csv():
             return redirect(url_for('import_csv'))
         content = f.stream.read().decode('utf-8', errors='ignore')
         lines = [ln for ln in content.splitlines() if ln.strip()]
-        # Try dict reader first
         try:
             reader = csv.DictReader(lines)
             rows = list(reader)
         except Exception:
             rows = []
-        # Fallback to headerless
         if not rows:
             rows = []
             for line in lines:
@@ -670,7 +848,6 @@ def import_csv():
         added = skipped = 0
 
         with db() as con:
-            # pull existing companies once (simple approach)
             existing = con.execute("SELECT id, name, url FROM companies").fetchall()
             for r in rows:
                 name_in = r.get('name','')
