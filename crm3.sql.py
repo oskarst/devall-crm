@@ -25,7 +25,9 @@ BASE_DIR = os.path.dirname(__file__)
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 DB_PATH   = os.path.join(DATA_DIR, 'crm.db')
 
-STATUSES = ["New", "Contacted", "Followup Sent", "Replied", "Discovery"]
+LEAD_STATUSES = ["New", "Contacted", "Qualified", "Negotiation", "Lost"]
+CLIENT_STATUSES = ["Onboarding", "Active Project", "Follow-up Needed", "Paused", "Past Client"]
+ALL_STATUSES = LEAD_STATUSES + ["Client"] + CLIENT_STATUSES
 TYPES = ["marketing", "development", "merchant"]
 OWNERS = ["Oskars", "Shawn"]
 
@@ -239,10 +241,11 @@ BASE_HTML = """
       <div class=\"container\">
         <a class=\"navbar-brand\" href=\"{{ url_for('board') }}\">Mini CRM</a>
         <div class=\"d-flex gap-2\">
-          <a class=\"btn btn-primary\" href=\"{{ url_for('add_company') }}\">Add Company</a>
-          <a class=\"btn btn-outline-secondary\" href=\"{{ url_for('board') }}\">Board</a>
-          <a class=\"btn btn-outline-secondary\" href=\"{{ url_for('list_view') }}\">List</a>
-          <a class=\"btn btn-outline-secondary\" href=\"{{ url_for('import_csv') }}\">Import</a>
+          <a class="btn btn-primary" href="{{ url_for('add_company') }}">Add Company</a>
+          <a class="btn btn-outline-secondary" href="{{ url_for('board') }}">Lead Board</a>
+          <a class="btn btn-outline-secondary" href="{{ url_for('clients_board') }}">Clients Board</a>
+          <a class="btn btn-outline-secondary" href="{{ url_for('list_view') }}">List</a>
+          <a class="btn btn-outline-secondary" href="{{ url_for('import_csv') }}">Import</a>
         </div>
       </div>
     </nav>
@@ -521,7 +524,7 @@ DETAIL_HTML = """
 
 BOARD_HTML = """
 <div class=\"d-flex justify-content-between align-items-center mb-2\">
-  <h1 class=\"h4 mb-0\">Company Board</h1>
+  <h1 class="h4 mb-0">{{ board_title }}</h1>
   <div class=\"d-flex align-items-center gap-2\">
     <input id=\"boardSearch\" class=\"form-control\" placeholder=\"Search name, email, url, owner...\" style=\"min-width:320px\">
     <button class=\"btn btn-outline-secondary\" onclick=\"document.getElementById('boardSearch').value=''; filterCards();\">Clear</button>
@@ -774,7 +777,7 @@ def add_company():
       'pre_sources': json.loads(prefs.get('last_sources', '[]') or '[]')
     }
     latest_sources = get_latest_sources(10)
-    body = render_template_string(ADD_HTML, types=TYPES, owners=OWNERS, statuses=STATUSES,
+    body = render_template_string(ADD_HTML, types=TYPES, owners=OWNERS, statuses=ALL_STATUSES,
       defaults=defaults, latest_sources=latest_sources)
     return render_template_string(BASE_HTML, title='Add Company', body=body)
 
@@ -783,7 +786,7 @@ def company_detail(cid):
     c = get_company(cid)
     if not c:
         return render_template_string(BASE_HTML, title='Not Found', body='<div class="alert alert-warning">Company not found.</div>')
-    body = render_template_string(DETAIL_HTML, company=c, statuses=STATUSES, owners=OWNERS)
+    body = render_template_string(DETAIL_HTML, company=c, statuses=ALL_STATUSES, owners=OWNERS)
     return render_template_string(BASE_HTML, title='Company Detail', body=body)
 
 @app.route('/company/<cid>', methods=['POST'])
@@ -797,6 +800,11 @@ def update_company(cid):
     except Exception:
         sources = [s.strip() for s in sources_raw.split(',') if s.strip()]
     with db() as con:
+        new_status = request.form.get('status')
+        if new_status == 'Client':
+            # Promote to first Clients Board stage so it shows on Clients Board columns
+            new_status = 'Onboarding'
+
         con.execute("""
             UPDATE companies SET
               status = COALESCE(?, status),
@@ -807,7 +815,7 @@ def update_company(cid):
               updated_at = ?
             WHERE id=?
         """, (
-            request.form.get('status'),
+            new_status,
             request.form.get('owner'),
             1 if request.form.get('contacted_email') else 0,
             1 if request.form.get('contacted_url') else 0,
@@ -843,9 +851,26 @@ def add_note(cid):
 @app.route('/board')
 def board():
     data = load_data()
-    companies = sorted(data['companies'], key=lambda x: x.get('updated_at',''), reverse=True)
-    body = render_template_string(BOARD_HTML, statuses=STATUSES, companies=companies)
-    return render_template_string(BASE_HTML, title='Board', body=body)
+    # Only show leads (not clients)
+    companies = [c for c in data['companies'] if (c.get('status') in LEAD_STATUSES)]
+    companies = sorted(companies, key=lambda x: x.get('updated_at',''), reverse=True)
+    body = render_template_string(BOARD_HTML,
+                                  board_title='Lead Board',
+                                  statuses=LEAD_STATUSES,
+                                  companies=companies)
+    return render_template_string(BASE_HTML, title='Lead Board', body=body)
+
+@app.route('/clients')
+def clients_board():
+    data = load_data()
+    # Only show client statuses
+    companies = [c for c in data['companies'] if (c.get('status') in CLIENT_STATUSES)]
+    companies = sorted(companies, key=lambda x: x.get('updated_at',''), reverse=True)
+    body = render_template_string(BOARD_HTML,
+                                  board_title='Clients Board',
+                                  statuses=CLIENT_STATUSES,
+                                  companies=companies)
+    return render_template_string(BASE_HTML, title='Clients Board', body=body)
 
 @app.route('/list')
 def list_view():
@@ -1008,7 +1033,7 @@ def api_update_status():
     try:
         payload = request.get_json(force=True)
         cid = payload.get('id'); status = payload.get('status')
-        if status not in STATUSES:
+        if status not in ALL_STATUSES:
             return jsonify({"ok": False, "error": "Invalid status"})
         now = datetime.now().strftime('%Y-%m-%d %H:%M')
         with db() as con:
