@@ -535,15 +535,51 @@ DETAIL_HTML = """
               {% for n in items | reverse %}
                 <div class="note">
                   <div class="small text-muted d-flex justify-content-between align-items-center">
-                    <span>{{ n['time'] }}</span>
-                    <form method="post" action="{{ url_for('toggle_star', cid=company['id'], nid=n['id']) }}">
-                      <input type="hidden" name="from" value="general">
-                      <button class="btn btn-sm {% if n['starred'] %}btn-warning{% else %}btn-outline-secondary{% endif %}" type="submit">
-                        {% if n['starred'] %}★ Starred{% else %}☆ Star{% endif %}
+                    <span>{{ n['time'] }}{% if n['category'] %} • {{ n['category'] }}{% endif %}</span>
+                    <div class="d-flex gap-1">
+                      <form method="post" action="{{ url_for('toggle_star', cid=company['id'], nid=n['id']) }}">
+                        <input type="hidden" name="from" value="general">
+                        <button class="btn btn-sm {% if n['starred'] %}btn-warning{% else %}btn-outline-secondary{% endif %}" type="submit" title="Star / Unstar">
+                          {% if n['starred'] %}★{% else %}☆{% endif %}
+                        </button>
+                      </form>
+                      <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-{{ n['id'] }}" title="Edit note">
+                        Edit
                       </button>
+                      <form method="post" action="{{ url_for('delete_note', cid=company['id'], nid=n['id']) }}" onsubmit="return confirm('Delete this note?');">
+                        <button class="btn btn-sm btn-outline-danger" type="submit" title="Delete note">Delete</button>
+                      </form>
+                    </div>
+                  </div>
+
+                  <div class="mt-1">{{ n['text']|replace('\n','<br>')|safe }}</div>
+
+                  <div class="collapse mt-2" id="edit-{{ n['id'] }}">
+                    <form method="post" action="{{ url_for('edit_note', cid=company['id'], nid=n['id']) }}">
+                      <div class="mb-2">
+                        <textarea class="form-control" name="text" rows="3">{{ n['text'] }}</textarea>
+                      </div>
+                      <div class="row g-2">
+                        <div class="col-md-6">
+                          <select class="form-select" name="category">
+                            <option value="General" {% if n['category']=='General' %}selected{% endif %}>General</option>
+                            <option value="Contacts" {% if n['category']=='Contacts' %}selected{% endif %}>Contacts</option>
+                            <option value="Agreements" {% if n['category']=='Agreements' %}selected{% endif %}>Agreements</option>
+                          </select>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-center">
+                          <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="starred" value="1" {% if n['starred'] %}checked{% endif %} id="star-{{ n['id'] }}">
+                            <label class="form-check-label" for="star-{{ n['id'] }}">Starred</label>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="mt-2">
+                        <button class="btn btn-sm btn-primary" type="submit">Save</button>
+                        <button class="btn btn-sm btn-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-{{ n['id'] }}">Cancel</button>
+                      </div>
                     </form>
                   </div>
-                  <div>{{ n['text']|replace('\n','<br>')|safe }}</div>
                 </div>
               {% endfor %}
             </div>
@@ -557,15 +593,51 @@ DETAIL_HTML = """
               {% for n in items | reverse %}
                 <div class="note">
                   <div class="small text-muted d-flex justify-content-between align-items-center">
-                    <span>{{ n['time'] }}</span>
-                    <form method="post" action="{{ url_for('toggle_star', cid=company['id'], nid=n['id']) }}">
-                      <input type="hidden" name="from" value="contacts">
-                      <button class="btn btn-sm {% if n['starred'] %}btn-warning{% else %}btn-outline-secondary{% endif %}" type="submit">
-                        {% if n['starred'] %}★ Starred{% else %}☆ Star{% endif %}
+                    <span>{{ n['time'] }}{% if n['category'] %} • {{ n['category'] }}{% endif %}</span>
+                    <div class="d-flex gap-1">
+                      <form method="post" action="{{ url_for('toggle_star', cid=company['id'], nid=n['id']) }}">
+                        <input type="hidden" name="from" value="general">
+                        <button class="btn btn-sm {% if n['starred'] %}btn-warning{% else %}btn-outline-secondary{% endif %}" type="submit" title="Star / Unstar">
+                          {% if n['starred'] %}★{% else %}☆{% endif %}
+                        </button>
+                      </form>
+                      <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-{{ n['id'] }}" title="Edit note">
+                        Edit
                       </button>
+                      <form method="post" action="{{ url_for('delete_note', cid=company['id'], nid=n['id']) }}" onsubmit="return confirm('Delete this note?');">
+                        <button class="btn btn-sm btn-outline-danger" type="submit" title="Delete note">Delete</button>
+                      </form>
+                    </div>
+                  </div>
+
+                  <div class="mt-1">{{ n['text']|replace('\n','<br>')|safe }}</div>
+
+                  <div class="collapse mt-2" id="edit-{{ n['id'] }}">
+                    <form method="post" action="{{ url_for('edit_note', cid=company['id'], nid=n['id']) }}">
+                      <div class="mb-2">
+                        <textarea class="form-control" name="text" rows="3">{{ n['text'] }}</textarea>
+                      </div>
+                      <div class="row g-2">
+                        <div class="col-md-6">
+                          <select class="form-select" name="category">
+                            <option value="General" {% if n['category']=='General' %}selected{% endif %}>General</option>
+                            <option value="Contacts" {% if n['category']=='Contacts' %}selected{% endif %}>Contacts</option>
+                            <option value="Agreements" {% if n['category']=='Agreements' %}selected{% endif %}>Agreements</option>
+                          </select>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-center">
+                          <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="starred" value="1" {% if n['starred'] %}checked{% endif %} id="star-{{ n['id'] }}">
+                            <label class="form-check-label" for="star-{{ n['id'] }}">Starred</label>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="mt-2">
+                        <button class="btn btn-sm btn-primary" type="submit">Save</button>
+                        <button class="btn btn-sm btn-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-{{ n['id'] }}">Cancel</button>
+                      </div>
                     </form>
                   </div>
-                  <div>{{ n['text']|replace('\n','<br>')|safe }}</div>
                 </div>
               {% endfor %}
             </div>
@@ -579,15 +651,51 @@ DETAIL_HTML = """
               {% for n in items | reverse %}
                 <div class="note">
                   <div class="small text-muted d-flex justify-content-between align-items-center">
-                    <span>{{ n['time'] }}</span>
-                    <form method="post" action="{{ url_for('toggle_star', cid=company['id'], nid=n['id']) }}">
-                      <input type="hidden" name="from" value="agreements">
-                      <button class="btn btn-sm {% if n['starred'] %}btn-warning{% else %}btn-outline-secondary{% endif %}" type="submit">
-                        {% if n['starred'] %}★ Starred{% else %}☆ Star{% endif %}
+                    <span>{{ n['time'] }}{% if n['category'] %} • {{ n['category'] }}{% endif %}</span>
+                    <div class="d-flex gap-1">
+                      <form method="post" action="{{ url_for('toggle_star', cid=company['id'], nid=n['id']) }}">
+                        <input type="hidden" name="from" value="general">
+                        <button class="btn btn-sm {% if n['starred'] %}btn-warning{% else %}btn-outline-secondary{% endif %}" type="submit" title="Star / Unstar">
+                          {% if n['starred'] %}★{% else %}☆{% endif %}
+                        </button>
+                      </form>
+                      <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-{{ n['id'] }}" title="Edit note">
+                        Edit
                       </button>
+                      <form method="post" action="{{ url_for('delete_note', cid=company['id'], nid=n['id']) }}" onsubmit="return confirm('Delete this note?');">
+                        <button class="btn btn-sm btn-outline-danger" type="submit" title="Delete note">Delete</button>
+                      </form>
+                    </div>
+                  </div>
+
+                  <div class="mt-1">{{ n['text']|replace('\n','<br>')|safe }}</div>
+
+                  <div class="collapse mt-2" id="edit-{{ n['id'] }}">
+                    <form method="post" action="{{ url_for('edit_note', cid=company['id'], nid=n['id']) }}">
+                      <div class="mb-2">
+                        <textarea class="form-control" name="text" rows="3">{{ n['text'] }}</textarea>
+                      </div>
+                      <div class="row g-2">
+                        <div class="col-md-6">
+                          <select class="form-select" name="category">
+                            <option value="General" {% if n['category']=='General' %}selected{% endif %}>General</option>
+                            <option value="Contacts" {% if n['category']=='Contacts' %}selected{% endif %}>Contacts</option>
+                            <option value="Agreements" {% if n['category']=='Agreements' %}selected{% endif %}>Agreements</option>
+                          </select>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-center">
+                          <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="starred" value="1" {% if n['starred'] %}checked{% endif %} id="star-{{ n['id'] }}">
+                            <label class="form-check-label" for="star-{{ n['id'] }}">Starred</label>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="mt-2">
+                        <button class="btn btn-sm btn-primary" type="submit">Save</button>
+                        <button class="btn btn-sm btn-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-{{ n['id'] }}">Cancel</button>
+                      </div>
                     </form>
                   </div>
-                  <div>{{ n['text']|replace('\n','<br>')|safe }}</div>
                 </div>
               {% endfor %}
             </div>
@@ -601,15 +709,51 @@ DETAIL_HTML = """
               {% for n in items | reverse %}
                 <div class="note">
                   <div class="small text-muted d-flex justify-content-between align-items-center">
-                    <span>{{ n['time'] }} • {{ n['category'] }}</span>
-                    <form method="post" action="{{ url_for('toggle_star', cid=company['id'], nid=n['id']) }}">
-                      <input type="hidden" name="from" value="starred">
-                      <button class="btn btn-sm {% if n['starred'] %}btn-warning{% else %}btn-outline-secondary{% endif %}" type="submit">
-                        {% if n['starred'] %}★ Starred{% else %}☆ Star{% endif %}
+                    <span>{{ n['time'] }}{% if n['category'] %} • {{ n['category'] }}{% endif %}</span>
+                    <div class="d-flex gap-1">
+                      <form method="post" action="{{ url_for('toggle_star', cid=company['id'], nid=n['id']) }}">
+                        <input type="hidden" name="from" value="general">
+                        <button class="btn btn-sm {% if n['starred'] %}btn-warning{% else %}btn-outline-secondary{% endif %}" type="submit" title="Star / Unstar">
+                          {% if n['starred'] %}★{% else %}☆{% endif %}
+                        </button>
+                      </form>
+                      <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-{{ n['id'] }}" title="Edit note">
+                        Edit
                       </button>
+                      <form method="post" action="{{ url_for('delete_note', cid=company['id'], nid=n['id']) }}" onsubmit="return confirm('Delete this note?');">
+                        <button class="btn btn-sm btn-outline-danger" type="submit" title="Delete note">Delete</button>
+                      </form>
+                    </div>
+                  </div>
+
+                  <div class="mt-1">{{ n['text']|replace('\n','<br>')|safe }}</div>
+
+                  <div class="collapse mt-2" id="edit-{{ n['id'] }}">
+                    <form method="post" action="{{ url_for('edit_note', cid=company['id'], nid=n['id']) }}">
+                      <div class="mb-2">
+                        <textarea class="form-control" name="text" rows="3">{{ n['text'] }}</textarea>
+                      </div>
+                      <div class="row g-2">
+                        <div class="col-md-6">
+                          <select class="form-select" name="category">
+                            <option value="General" {% if n['category']=='General' %}selected{% endif %}>General</option>
+                            <option value="Contacts" {% if n['category']=='Contacts' %}selected{% endif %}>Contacts</option>
+                            <option value="Agreements" {% if n['category']=='Agreements' %}selected{% endif %}>Agreements</option>
+                          </select>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-center">
+                          <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="starred" value="1" {% if n['starred'] %}checked{% endif %} id="star-{{ n['id'] }}">
+                            <label class="form-check-label" for="star-{{ n['id'] }}">Starred</label>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="mt-2">
+                        <button class="btn btn-sm btn-primary" type="submit">Save</button>
+                        <button class="btn btn-sm btn-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-{{ n['id'] }}">Cancel</button>
+                      </div>
                     </form>
                   </div>
-                  <div>{{ n['text']|replace('\n','<br>')|safe }}</div>
                 </div>
               {% endfor %}
             </div>
@@ -999,6 +1143,33 @@ def toggle_star(cid, nid):
             con.execute("UPDATE companies SET updated_at=? WHERE id=?", (datetime.now().strftime('%Y-%m-%d %H:%M'), cid))
             con.commit()
     return redirect(url_for('company_detail', cid=cid) + (f"#{refer}" if refer else ""))
+
+@app.route('/company/<cid>/note/<nid>/edit', methods=['POST'])
+def edit_note(cid, nid):
+    new_text = (request.form.get('text') or '').strip()
+    new_category = (request.form.get('category') or 'General').strip() or 'General'
+    new_starred = 1 if request.form.get('starred') else 0
+    now = datetime.now().strftime('%Y-%m-%d %H:%M')
+    with db() as con:
+        con.execute("""
+            UPDATE notes
+               SET text = ?,
+                   category = ?,
+                   starred = ?
+             WHERE id = ? AND company_id = ?
+        """, (new_text, new_category, new_starred, nid, cid))
+        con.execute("UPDATE companies SET updated_at=? WHERE id=?", (now, cid))
+        con.commit()
+    return redirect(url_for('company_detail', cid=cid))
+
+@app.route('/company/<cid>/note/<nid>/delete', methods=['POST'])
+def delete_note(cid, nid):
+    now = datetime.now().strftime('%Y-%m-%d %H:%M')
+    with db() as con:
+        con.execute("DELETE FROM notes WHERE id=? AND company_id=?", (nid, cid))
+        con.execute("UPDATE companies SET updated_at=? WHERE id=?", (now, cid))
+        con.commit()
+    return redirect(url_for('company_detail', cid=cid))
 
 @app.route('/board')
 def board():
