@@ -26,9 +26,9 @@ DATA_DIR = os.path.join(BASE_DIR, 'data')
 DB_PATH   = os.path.join(DATA_DIR, 'crm.db')
 
 LEAD_STATUSES = ["New", "Contacted", "Qualified", "Negotiation", "Lost"]
-CLIENT_STATUSES = ["Onboarding", "Active Project", "Follow-up Needed", "Paused", "Past Client"]
-ALL_STATUSES = LEAD_STATUSES + ["Client"] + CLIENT_STATUSES
-TYPES = ["marketing", "development", "merchant"]
+PARTNER_STATUSES = ["Onboarding", "Active Project", "Follow-up Needed", "Paused", "Source Partner"]
+ALL_STATUSES = LEAD_STATUSES + PARTNER_STATUSES + ["Past Client"]
+TYPES = ["Marketing Agency", "Agency", "Direct Customer", "Hosting Provider"]
 OWNERS = ["Oskars", "Shawn"]
 
 # ------------------------ SQLite Helpers ------------------------
@@ -243,7 +243,7 @@ BASE_HTML = """
         <div class=\"d-flex gap-2\">
           <a class="btn btn-primary" href="{{ url_for('add_company') }}">Add Company</a>
           <a class="btn btn-outline-secondary" href="{{ url_for('board') }}">Lead Board</a>
-          <a class="btn btn-outline-secondary" href="{{ url_for('clients_board') }}">Clients Board</a>
+          <a class="btn btn-outline-secondary" href="{{ url_for('partners_board') }}">Partners Board</a>
           <a class="btn btn-outline-secondary" href="{{ url_for('list_view') }}">List</a>
           <a class="btn btn-outline-secondary" href="{{ url_for('import_csv') }}">Import</a>
         </div>
@@ -450,6 +450,12 @@ DETAIL_HTML = """
           <label class=\"form-label\">Lead Owner</label>
           <select class=\"form-select\" name=\"owner\">{% for o in owners %}<option value=\"{{o}}\" {% if o==company.get('owner') %}selected{% endif %}>{{o}}</option>{% endfor %}</select>
         </div>
+        <div class="col-md-4">
+          <label class="form-label">Type</label>
+          <select class="form-select" name="type">
+            {% for t in types %}<option value="{{t}}" {% if t==company.get('type') %}selected{% endif %}>{{t}}</option>{% endfor %}
+          </select>
+        </div>
         <div class=\"col-12\">
           <label class=\"form-label\">Sources</label>
           <div class=\"mb-2\" id=\"srcTagsDetail\"></div>
@@ -539,8 +545,9 @@ BOARD_HTML = """
       <div class=\"card mb-2 crm-card\" data-id=\"{{ c['id'] }}\" data-name=\"{{ (c.get('name') or '')|lower }}\" data-email=\"{{ (c.get('email') or '')|lower }}\" data-url=\"{{ (c.get('url') or '')|lower }}\" data-owner=\"{{ (c.get('owner') or '')|lower }}\" onclick=\"openCompany(event, '{{ url_for('company_detail', cid=c['id']) }}')\">
         <div class=\"card-body py-2\">
           <div class=\"d-flex justify-content-between align-items-center\">
-            <div class=\"fw-semibold\">{{ c.get('name') or 'Unnamed' }}</div>
-            <span class=\"badge rounded-pill text-bg-secondary badge-type\">{{ c['type'] }}</span>
+            <div class=\"fw-semibold\">{{ c.get('name') or 'Unnamed' }}<br>
+              <span class=\"badge rounded-pill text-bg-secondary badge-type\">{{ c['type'] }}</span>
+            </div>
           </div>
           <div class=\"small text-muted\">{{ c.get('email') or c.get('url') or '' }}</div>
           <div class=\"small\"><span class=\"badge text-bg-warning\">{{ c.get('owner') or '-' }}</span></div>
@@ -786,7 +793,7 @@ def company_detail(cid):
     c = get_company(cid)
     if not c:
         return render_template_string(BASE_HTML, title='Not Found', body='<div class="alert alert-warning">Company not found.</div>')
-    body = render_template_string(DETAIL_HTML, company=c, statuses=ALL_STATUSES, owners=OWNERS)
+    body = render_template_string(DETAIL_HTML, company=c, statuses=ALL_STATUSES, owners=OWNERS, types=TYPES)
     return render_template_string(BASE_HTML, title='Company Detail', body=body)
 
 @app.route('/company/<cid>', methods=['POST'])
@@ -801,12 +808,10 @@ def update_company(cid):
         sources = [s.strip() for s in sources_raw.split(',') if s.strip()]
     with db() as con:
         new_status = request.form.get('status')
-        if new_status == 'Client':
-            # Promote to first Clients Board stage so it shows on Clients Board columns
-            new_status = 'Onboarding'
 
         con.execute("""
             UPDATE companies SET
+              type = COALESCE(?, type),
               status = COALESCE(?, status),
               owner = COALESCE(?, owner),
               contacted_email = ?,
@@ -815,6 +820,7 @@ def update_company(cid):
               updated_at = ?
             WHERE id=?
         """, (
+            request.form.get('type'),
             new_status,
             request.form.get('owner'),
             1 if request.form.get('contacted_email') else 0,
@@ -851,7 +857,7 @@ def add_note(cid):
 @app.route('/board')
 def board():
     data = load_data()
-    # Only show leads (not clients)
+    # Only show leads (not partners)
     companies = [c for c in data['companies'] if (c.get('status') in LEAD_STATUSES)]
     companies = sorted(companies, key=lambda x: x.get('updated_at',''), reverse=True)
     body = render_template_string(BOARD_HTML,
@@ -860,17 +866,17 @@ def board():
                                   companies=companies)
     return render_template_string(BASE_HTML, title='Lead Board', body=body)
 
-@app.route('/clients')
-def clients_board():
+@app.route('/partners')
+def partners_board():
     data = load_data()
-    # Only show client statuses
-    companies = [c for c in data['companies'] if (c.get('status') in CLIENT_STATUSES)]
+    # Only show partner statuses
+    companies = [c for c in data['companies'] if (c.get('status') in PARTNER_STATUSES)]
     companies = sorted(companies, key=lambda x: x.get('updated_at',''), reverse=True)
     body = render_template_string(BOARD_HTML,
-                                  board_title='Clients Board',
-                                  statuses=CLIENT_STATUSES,
+                                  board_title='Partners Board',
+                                  statuses=PARTNER_STATUSES,
                                   companies=companies)
-    return render_template_string(BASE_HTML, title='Clients Board', body=body)
+    return render_template_string(BASE_HTML, title='Partners Board', body=body)
 
 @app.route('/list')
 def list_view():
