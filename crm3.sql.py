@@ -514,16 +514,24 @@ DETAIL_HTML = """
 
       <ul class="nav nav-tabs" id="noteTabs" role="tablist">
         <li class="nav-item" role="presentation">
-          <button class="nav-link active" id="tab-general" data-bs-toggle="tab" data-bs-target="#pane-general" type="button" role="tab">General Notes</button>
+          <button class="nav-link active" id="tab-general" data-bs-toggle="tab" data-bs-target="#pane-general" type="button" role="tab">
+            General Notes ({{ company['notes'] | selectattr('category','equalto','General') | list | length }})
+          </button>
         </li>
         <li class="nav-item" role="presentation">
-          <button class="nav-link" id="tab-contacts" data-bs-toggle="tab" data-bs-target="#pane-contacts" type="button" role="tab">Contacts</button>
+          <button class="nav-link" id="tab-contacts" data-bs-toggle="tab" data-bs-target="#pane-contacts" type="button" role="tab">
+            Contacts ({{ company['notes'] | selectattr('category','equalto','Contacts') | list | length }})
+          </button>
         </li>
         <li class="nav-item" role="presentation">
-          <button class="nav-link" id="tab-agreements" data-bs-toggle="tab" data-bs-target="#pane-agreements" type="button" role="tab">Agreements</button>
+          <button class="nav-link" id="tab-agreements" data-bs-toggle="tab" data-bs-target="#pane-agreements" type="button" role="tab">
+            Agreements ({{ company['notes'] | selectattr('category','equalto','Agreements') | list | length }})
+          </button>
         </li>
         <li class="nav-item" role="presentation">
-          <button class="nav-link" id="tab-starred" data-bs-toggle="tab" data-bs-target="#pane-starred" type="button" role="tab">Starred</button>
+          <button class="nav-link" id="tab-starred" data-bs-toggle="tab" data-bs-target="#pane-starred" type="button" role="tab">
+            Starred ({{ company['notes'] | selectattr('starred') | list | length }})
+          </button>
         </li>
       </ul>
 
