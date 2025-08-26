@@ -66,8 +66,19 @@ def ensure_storage():
           company_id TEXT NOT NULL,
           time TEXT NOT NULL,
           text TEXT NOT NULL,
+          starred INTEGER DEFAULT 0,
+          category TEXT DEFAULT 'General',
           FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
         )""")
+        # Backward-compat for existing DBs
+        try:
+            cur.execute("ALTER TABLE notes ADD COLUMN starred INTEGER DEFAULT 0")
+        except Exception:
+            pass
+        try:
+            cur.execute("ALTER TABLE notes ADD COLUMN category TEXT DEFAULT 'General'")
+        except Exception:
+            pass
         # prefs table
         cur.execute("""
         CREATE TABLE IF NOT EXISTS prefs (
@@ -190,13 +201,13 @@ def get_company(cid):
         if not row:
             return None
         notes = con.execute(
-            "SELECT id, time, text FROM notes WHERE company_id=? ORDER BY time ASC", (cid,)
+            "SELECT id, time, text, starred, category FROM notes WHERE company_id=? ORDER BY time ASC", (cid,)
         ).fetchall()
         sources = con.execute(
             "SELECT source FROM sources WHERE company_id=? ORDER BY source COLLATE NOCASE", (cid,)
         ).fetchall()
         c = row_to_company(row)
-        c['notes'] = [{'time': n['time'], 'text': n['text']} for n in notes]
+        c['notes'] = [{'id': n['id'], 'time': n['time'], 'text': n['text'], 'starred': bool(n['starred']), 'category': n['category'] or 'General'} for n in notes]
         c['sources'] = [s['source'] for s in sources]
         return c
 
@@ -476,14 +487,135 @@ DETAIL_HTML = """
       </form>
     </div></div>
 
-    <div class=\"card shadow-sm\"><div class=\"card-body\">
-      <h2 class=\"h5\">Notes</h2>
-      <form method=\"post\" action=\"{{ url_for('add_note', cid=company['id']) }}\" class=\"mb-3\">
-        <div class=\"input-group\"><textarea class=\"form-control\" name=\"note\" rows=\"2\" placeholder=\"Add a note...\"></textarea><button class=\"btn btn-primary\" type=\"submit\">Add</button></div>
+    <div class="card shadow-sm"><div class="card-body">
+      <h2 class="h5 mb-3">Notes</h2>
+      <form method="post" action="{{ url_for('add_note', cid=company['id']) }}" class="mb-3 row g-2">
+        <div class="col-12">
+          <div class="input-group">
+            <textarea class="form-control" name="note" rows="2" placeholder="Add a note..."></textarea>
+            <button class="btn btn-primary" type="submit">Add</button>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Category</label>
+          <select class="form-select" name="category">
+            <option value="General">General</option>
+            <option value="Contacts">Contacts</option>
+            <option value="Agreements">Agreements</option>
+          </select>
+        </div>
+        <div class="col-md-6 d-flex align-items-end">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="starNew" name="starred" value="1">
+            <label class="form-check-label" for="starNew">Star this note</label>
+          </div>
+        </div>
       </form>
-      {% if company['notes'] %}
-        <div class=\"vstack gap-2\">{% for n in company['notes']|reverse %}<div class=\"note\"><div class=\"small text-muted\">{{ n['time'] }}</div><div>{{ n['text']|replace('\\n','<br>')|safe }}</div></div>{% endfor %}</div>
-      {% else %}<div class=\"text-muted\">No notes yet.</div>{% endif %}
+
+      <ul class="nav nav-tabs" id="noteTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="tab-general" data-bs-toggle="tab" data-bs-target="#pane-general" type="button" role="tab">General Notes</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="tab-contacts" data-bs-toggle="tab" data-bs-target="#pane-contacts" type="button" role="tab">Contacts</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="tab-agreements" data-bs-toggle="tab" data-bs-target="#pane-agreements" type="button" role="tab">Agreements</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="tab-starred" data-bs-toggle="tab" data-bs-target="#pane-starred" type="button" role="tab">Starred</button>
+        </li>
+      </ul>
+
+      <div class="tab-content pt-3">
+        <div class="tab-pane fade show active" id="pane-general" role="tabpanel">
+          {% set items = company['notes'] | selectattr('category', 'equalto', 'General') | list %}
+          {% if items %}
+            <div class="vstack gap-2">
+              {% for n in items | reverse %}
+                <div class="note">
+                  <div class="small text-muted d-flex justify-content-between align-items-center">
+                    <span>{{ n['time'] }}</span>
+                    <form method="post" action="{{ url_for('toggle_star', cid=company['id'], nid=n['id']) }}">
+                      <input type="hidden" name="from" value="general">
+                      <button class="btn btn-sm {% if n['starred'] %}btn-warning{% else %}btn-outline-secondary{% endif %}" type="submit">
+                        {% if n['starred'] %}★ Starred{% else %}☆ Star{% endif %}
+                      </button>
+                    </form>
+                  </div>
+                  <div>{{ n['text']|replace('\n','<br>')|safe }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}<div class="text-muted">No notes yet.</div>{% endif %}
+        </div>
+
+        <div class="tab-pane fade" id="pane-contacts" role="tabpanel">
+          {% set items = company['notes'] | selectattr('category', 'equalto', 'Contacts') | list %}
+          {% if items %}
+            <div class="vstack gap-2">
+              {% for n in items | reverse %}
+                <div class="note">
+                  <div class="small text-muted d-flex justify-content-between align-items-center">
+                    <span>{{ n['time'] }}</span>
+                    <form method="post" action="{{ url_for('toggle_star', cid=company['id'], nid=n['id']) }}">
+                      <input type="hidden" name="from" value="contacts">
+                      <button class="btn btn-sm {% if n['starred'] %}btn-warning{% else %}btn-outline-secondary{% endif %}" type="submit">
+                        {% if n['starred'] %}★ Starred{% else %}☆ Star{% endif %}
+                      </button>
+                    </form>
+                  </div>
+                  <div>{{ n['text']|replace('\n','<br>')|safe }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}<div class="text-muted">No notes yet.</div>{% endif %}
+        </div>
+
+        <div class="tab-pane fade" id="pane-agreements" role="tabpanel">
+          {% set items = company['notes'] | selectattr('category', 'equalto', 'Agreements') | list %}
+          {% if items %}
+            <div class="vstack gap-2">
+              {% for n in items | reverse %}
+                <div class="note">
+                  <div class="small text-muted d-flex justify-content-between align-items-center">
+                    <span>{{ n['time'] }}</span>
+                    <form method="post" action="{{ url_for('toggle_star', cid=company['id'], nid=n['id']) }}">
+                      <input type="hidden" name="from" value="agreements">
+                      <button class="btn btn-sm {% if n['starred'] %}btn-warning{% else %}btn-outline-secondary{% endif %}" type="submit">
+                        {% if n['starred'] %}★ Starred{% else %}☆ Star{% endif %}
+                      </button>
+                    </form>
+                  </div>
+                  <div>{{ n['text']|replace('\n','<br>')|safe }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}<div class="text-muted">No notes yet.</div>{% endif %}
+        </div>
+
+        <div class="tab-pane fade" id="pane-starred" role="tabpanel">
+          {% set items = company['notes'] | selectattr('starred') | list %}
+          {% if items %}
+            <div class="vstack gap-2">
+              {% for n in items | reverse %}
+                <div class="note">
+                  <div class="small text-muted d-flex justify-content-between align-items-center">
+                    <span>{{ n['time'] }} • {{ n['category'] }}</span>
+                    <form method="post" action="{{ url_for('toggle_star', cid=company['id'], nid=n['id']) }}">
+                      <input type="hidden" name="from" value="starred">
+                      <button class="btn btn-sm {% if n['starred'] %}btn-warning{% else %}btn-outline-secondary{% endif %}" type="submit">
+                        {% if n['starred'] %}★ Starred{% else %}☆ Star{% endif %}
+                      </button>
+                    </form>
+                  </div>
+                  <div>{{ n['text']|replace('\n','<br>')|safe }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}<div class="text-muted">No starred notes yet.</div>{% endif %}
+        </div>
+      </div>
     </div></div>
   </div>
   <div class=\"col-lg-4\"><div class=\"card shadow-sm\"><div class=\"card-body\"><h2 class=\"h6\">Meta</h2><div class=\"small text-muted\">Created: {{ company['created_at'] }}<br>Updated: {{ company['updated_at'] }}</div></div></div></div>
@@ -845,14 +977,28 @@ def add_note(cid):
     note = (request.form.get('note') or '').strip()
     if not note:
         return redirect(url_for('company_detail', cid=cid))
+    category = (request.form.get('category') or 'General').strip() or 'General'
+    starred = 1 if request.form.get('starred') else 0
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
     with db() as con:
-        con.execute("INSERT INTO notes(id,company_id,time,text) VALUES(?,?,?,?)",
-                    (str(uuid.uuid4()), cid, now, note))
+        con.execute("INSERT INTO notes(id,company_id,time,text,starred,category) VALUES(?,?,?,?,?,?)",
+                    (str(uuid.uuid4()), cid, now, note, starred, category))
         con.execute("UPDATE companies SET updated_at=? WHERE id=?", (now, cid))
         con.commit()
     flash('Note added.')
     return redirect(url_for('company_detail', cid=cid))
+
+@app.route('/company/<cid>/note/<nid>/star', methods=['POST'])
+def toggle_star(cid, nid):
+    refer = request.form.get('from','')
+    with db() as con:
+        row = con.execute("SELECT starred FROM notes WHERE id=? AND company_id=?", (nid, cid)).fetchone()
+        if row is not None:
+            new_val = 0 if row['starred'] else 1
+            con.execute("UPDATE notes SET starred=? WHERE id=? AND company_id=?", (new_val, nid, cid))
+            con.execute("UPDATE companies SET updated_at=? WHERE id=?", (datetime.now().strftime('%Y-%m-%d %H:%M'), cid))
+            con.commit()
+    return redirect(url_for('company_detail', cid=cid) + (f"#{refer}" if refer else ""))
 
 @app.route('/board')
 def board():
