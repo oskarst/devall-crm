@@ -578,11 +578,9 @@ LIST_HTML = """
   <h1 class='h4 mb-0'>Companies</h1>
   <form class='d-flex gap-2' method='get'>
     <input class='form-control' type='search' name='q' value='{{ q }}' placeholder='Search name, email, url, owner...'>
-    <select class='form-select' name='sort'>
-      <option value='updated' {% if sort=='updated' %}selected{% endif %}>Modified (newest)</option>
-      <option value='created' {% if sort=='created' %}selected{% endif %}>Added (newest)</option>
-    </select>
-    <button class='btn btn-outline-secondary' type='submit'>Apply</button>
+    <input type='hidden' name='sort' value='{{ sort }}'>
+    <input type='hidden' name='dir' value='{{ dir }}'>
+    <button class='btn btn-outline-secondary' type='submit'>Search</button>
   </form>
 </div>
 
@@ -591,7 +589,47 @@ LIST_HTML = """
   <thead>
     <tr>
       <th style="width:36px;"><input type="checkbox" id="chkAll"></th>
-      <th>Name</th><th>Type</th><th>Owner</th><th>Status</th><th>Email</th><th>URL</th><th>Created</th><th>Updated</th><th></th>
+      <th>
+        <a href="{{ url_for('list_view', q=q, sort='name', dir=next_dir('name')) }}">
+          Name {{ caret('name') }}
+        </a>
+      </th>
+      <th>
+        <a href="{{ url_for('list_view', q=q, sort='type', dir=next_dir('type')) }}">
+          Type {{ caret('type') }}
+        </a>
+      </th>
+      <th>
+        <a href="{{ url_for('list_view', q=q, sort='owner', dir=next_dir('owner')) }}">
+          Owner {{ caret('owner') }}
+        </a>
+      </th>
+      <th>
+        <a href="{{ url_for('list_view', q=q, sort='status', dir=next_dir('status')) }}">
+          Status {{ caret('status') }}
+        </a>
+      </th>
+      <th>
+        <a href="{{ url_for('list_view', q=q, sort='email', dir=next_dir('email')) }}">
+          Email {{ caret('email') }}
+        </a>
+      </th>
+      <th>
+        <a href="{{ url_for('list_view', q=q, sort='url', dir=next_dir('url')) }}">
+          URL {{ caret('url') }}
+        </a>
+      </th>
+      <th>
+        <a href="{{ url_for('list_view', q=q, sort='created', dir=next_dir('created')) }}">
+          Created {{ caret('created') }}
+        </a>
+      </th>
+      <th>
+        <a href="{{ url_for('list_view', q=q, sort='updated', dir=next_dir('updated')) }}">
+          Updated {{ caret('updated') }}
+        </a>
+      </th>
+      <th></th>
     </tr>
   </thead>
   <tbody>
@@ -607,7 +645,6 @@ LIST_HTML = """
       <td>{{ c['created_at'] }}</td>
       <td>{{ c['updated_at'] }}</td>
       <td>
-        <!-- Use mass_delete endpoint for single-row delete as well -->
         <button class='btn btn-sm btn-outline-danger'
                 type='submit'
                 name='ids' value='{{ c["id"] }}'
@@ -623,7 +660,7 @@ LIST_HTML = """
 </table>
 <div class="d-flex gap-2">
   <button class="btn btn-danger" type="submit" onclick="return confirmMass()">Delete selected</button>
-  <a class="btn btn-outline-secondary" href="{{ url_for('list_view', q=q, sort=sort) }}">Refresh</a>
+  <a class="btn btn-outline-secondary" href="{{ url_for('list_view', q=q, sort=sort, dir=dir) }}">Refresh</a>
 </div>
 </form>
 
@@ -814,8 +851,13 @@ def board():
 def list_view():
     data = load_data()
     q = (request.args.get('q') or '').strip().lower()
-    sort = request.args.get('sort') or 'updated'
+    sort = (request.args.get('sort') or 'updated').lower()
+    direction = (request.args.get('dir') or 'desc').lower()
+    if direction not in ('asc', 'desc'):
+        direction = 'desc'
+
     items = data['companies']
+
     if q:
         def match(c):
             hay = ' '.join([
@@ -823,14 +865,45 @@ def list_view():
                 (c.get('url') or '').lower(),
                 (c.get('email') or '').lower(),
                 (c.get('owner') or '').lower(),
+                (c.get('type') or '').lower(),
+                (c.get('status') or '').lower(),
             ])
             return q in hay
         items = [c for c in items if match(c)]
-    if sort == 'created':
-        items = sorted(items, key=lambda x: x.get('created_at',''), reverse=True)
-    else:
-        items = sorted(items, key=lambda x: x.get('updated_at',''), reverse=True)
-    body = render_template_string(LIST_HTML, companies=items, q=q, sort=sort)
+
+    def key_for(c, field):
+        if field == 'name':   return (c.get('name') or '').lower()
+        if field == 'type':   return (c.get('type') or '').lower()
+        if field == 'owner':  return (c.get('owner') or '').lower()
+        if field == 'status': return (c.get('status') or '').lower()
+        if field == 'email':  return (c.get('email') or '').lower()
+        if field == 'url':    return (c.get('url') or '').lower()
+        if field in ('created', 'created_at'): return c.get('created_at','')
+        if field in ('updated', 'updated_at'): return c.get('updated_at','')
+        return c.get('updated_at','')
+
+    reverse = (direction == 'desc')
+    items = sorted(items, key=lambda c: key_for(c, sort), reverse=reverse)
+
+    def caret(field):
+        if field != sort:
+            return ''
+        return '▲' if direction == 'asc' else '▼'
+
+    def next_dir(field):
+        if field != sort:
+            return 'asc'
+        return 'desc' if direction == 'asc' else 'asc'
+
+    body = render_template_string(
+        LIST_HTML,
+        companies=items,
+        q=q,
+        sort=sort,
+        dir=direction,
+        caret=caret,
+        next_dir=next_dir
+    )
     return render_template_string(BASE_HTML, title='Companies', body=body)
 
 @app.route('/company/<cid>/delete', methods=['POST'])
