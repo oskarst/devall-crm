@@ -72,6 +72,7 @@ def ensure_storage():
           key TEXT PRIMARY KEY,
           value TEXT
         )""")
+        cur.execute("INSERT OR IGNORE INTO prefs(key,value) VALUES('last_sources', '[]')")
         # sources table (tags)
         cur.execute("""
         CREATE TABLE IF NOT EXISTS sources (
@@ -109,6 +110,9 @@ def load_prefs():
         prefs = {r['key']: r['value'] for r in cur.fetchall()}
     prefs.setdefault('last_type', TYPES[0])
     prefs.setdefault('last_owner', OWNERS[0])
+    # ensure key exists even if older DB
+    if 'last_sources' not in prefs:
+      prefs['last_sources'] = '[]'
     return prefs
 
 def save_prefs(prefs):
@@ -121,6 +125,23 @@ def save_prefs(prefs):
                 (k, v)
             )
         con.commit()
+
+def get_latest_sources(limit=10):
+    """Return up to `limit` most recently used distinct sources (tags)."""
+    ensure_storage()
+    with db() as con:
+        rows = con.execute(
+            """
+            SELECT s.source, MAX(COALESCE(c.updated_at, c.created_at)) AS last_used
+            FROM sources s
+            JOIN companies c ON c.id = s.company_id
+            GROUP BY s.source
+            ORDER BY last_used DESC
+            LIMIT ?
+            """,
+            (limit,)
+        ).fetchall()
+    return [r["source"] for r in rows]
 
 def load_data():
     """Return {'companies': [company dicts with notes and sources]} for existing UI code."""
@@ -255,6 +276,9 @@ ADD_HTML = """
           <div class=\"col-md-9\">
             <label class=\"form-label\">Sources</label>
             <div class=\"mb-2\" id=\"srcTags\"></div>
+            <div class=\"mt-2\">
+              <div class=\"small text-muted mb-1\">Recent tags:</div>{% if latest_sources %}{% for s in latest_sources %}<button class=\"btn btn-sm btn-outline-secondary me-1 mb-1 src-suggest\" type=\"button\" data-tag=\"{{ s }}\">{{ s }}</button>{% endfor %}{% else %}<div class=\"text-muted small\">No tags yet.</div>{% endif %}
+            </div>
             <div class=\"input-group\">
               <input class=\"form-control\" id=\"srcInput\" placeholder=\"Type a source and press Enter\">
               <button class=\"btn btn-outline-secondary\" type=\"button\" id=\"srcAddBtn\">Add</button>
@@ -346,9 +370,11 @@ ADD_HTML = """
     const tagsBox = document.getElementById('srcTags');
     const input = document.getElementById('srcInput');
     const addBtn = document.getElementById('srcAddBtn');
+    const suggestBtns = () => Array.from(document.querySelectorAll('.src-suggest'));
     const hidden = document.getElementById('srcHidden');
     if(!tagsBox || !input || !hidden) return;
-    let tags = [];
+    const initial = {{ (defaults.pre_sources or []) | tojson }};
+    let tags = Array.isArray(initial) ? initial.slice() : [];
     function render(){
       tagsBox.innerHTML = '';
       tags.forEach((t,i)=>{
@@ -365,6 +391,11 @@ ADD_HTML = """
       if(!tags.includes(v)) tags.push(v);
       input.value=''; render();
     }
+    function wireSuggest(){
+      suggestBtns().forEach(btn=>{
+        btn.addEventListener('click', ()=> addTag(btn.getAttribute('data-tag')||''));
+      });
+    }
     tagsBox.addEventListener('click', e=>{
       const i = e.target.getAttribute('data-i');
       if(i!==null){ tags.splice(Number(i),1); render(); }
@@ -374,7 +405,7 @@ ADD_HTML = """
       if(e.key===',' ){ e.preventDefault(); addTag(input.value.replace(',','')); }
     });
     addBtn && addBtn.addEventListener('click', ()=> addTag(input.value));
-    render();
+    render(); wireSuggest();
   })();
 </script>
 """
@@ -695,12 +726,19 @@ def add_company():
         # remember last selections
         prefs['last_type'] = payload['type']
         prefs['last_owner'] = payload['owner']
+        prefs['last_sources'] = json.dumps(sources)
         save_prefs(prefs)
         flash('Company added.')
         return redirect(url_for('board'))
 
-    defaults = {'last_type': prefs.get('last_type', TYPES[0]), 'last_owner': prefs.get('last_owner', OWNERS[0])}
-    body = render_template_string(ADD_HTML, types=TYPES, owners=OWNERS, statuses=STATUSES, defaults=defaults)
+    defaults = {
+      'last_type': prefs.get('last_type', TYPES[0]),
+      'last_owner': prefs.get('last_owner', OWNERS[0]),
+      'pre_sources': json.loads(prefs.get('last_sources', '[]') or '[]')
+    }
+    latest_sources = get_latest_sources(10)
+    body = render_template_string(ADD_HTML, types=TYPES, owners=OWNERS, statuses=STATUSES,
+      defaults=defaults, latest_sources=latest_sources)
     return render_template_string(BASE_HTML, title='Add Company', body=body)
 
 @app.route('/company/<cid>')
