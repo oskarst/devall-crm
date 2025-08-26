@@ -461,28 +461,39 @@ DETAIL_HTML = """
           <label class=\"form-label\">Lead Owner</label>
           <select class=\"form-select\" name=\"owner\">{% for o in owners %}<option value=\"{{o}}\" {% if o==company.get('owner') %}selected{% endif %}>{{o}}</option>{% endfor %}</select>
         </div>
-        <div class="col-md-4">
-          <label class="form-label">Type</label>
-          <select class="form-select" name="type">
-            {% for t in types %}<option value="{{t}}" {% if t==company.get('type') %}selected{% endif %}>{{t}}</option>{% endfor %}
-          </select>
+        <div class="col-12 d-flex justify-content-end">
+          {% if is_partner %}
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#advEdit">Show more fields</button>
+          {% endif %}
         </div>
-        <div class=\"col-12\">
-          <label class=\"form-label\">Sources</label>
-          <div class=\"mb-2\" id=\"srcTagsDetail\"></div>
-          <div class=\"input-group\">
-            <input class=\"form-control\" id=\"srcInputDetail\" placeholder=\"Type a source and press Enter\">
-            <button class=\"btn btn-outline-secondary\" type=\"button\" id=\"srcAddBtnDetail\">Add</button>
+        <div id="advEdit" class="collapse {% if not is_partner %}show{% endif %}">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Type</label>
+            <select class="form-select" name="type">
+              {% for t in types %}<option value="{{t}}" {% if t==company.get('type') %}selected{% endif %}>{{t}}</option>{% endfor %}
+            </select>
           </div>
-          <input type=\"hidden\" name=\"sources\" id=\"srcHiddenDetail\" value='{{ (company.get(\"sources\") or []) | tojson }}'>
-          <div class=\"form-text\">Add/remove tags; they will be saved on Update.</div>
+
+          <div class="col-12">
+            <label class="form-label">Sources</label>
+            <div class="mb-2" id="srcTagsDetail"></div>
+            <div class="input-group">
+              <input class="form-control" id="srcInputDetail" placeholder="Type a source and press Enter">
+              <button class="btn btn-outline-secondary" type="button" id="srcAddBtnDetail">Add</button>
+            </div>
+            <input type="hidden" name="sources" id="srcHiddenDetail" value='{{ (company.get("sources") or []) | tojson }}'>
+            <div class="form-text">Add/remove tags; they will be saved on Update.</div>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Contacted via</label>
+            <div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="contacted_email" value="1" {% if company['contacted_via'].get('email') %}checked{% endif %}><label class="form-check-label">Email</label></div>
+            <div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="contacted_url" value="1" {% if company['contacted_via'].get('url') %}checked{% endif %}><label class="form-check-label">Website form</label></div>
+            <div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="contacted_linkedin" value="1" {% if company['contacted_via'].get('linkedin') %}checked{% endif %}><label class="form-check-label">LinkedIn</label></div>
+          </div>
         </div>
-        <div class=\"col-12\">
-          <label class=\"form-label\">Contacted via</label>
-          <div class=\"form-check form-check-inline\"><input class=\"form-check-input\" type=\"checkbox\" name=\"contacted_email\" value=\"1\" {% if company['contacted_via'].get('email') %}checked{% endif %}><label class=\"form-check-label\">Email</label></div>
-          <div class=\"form-check form-check-inline\"><input class=\"form-check-input\" type=\"checkbox\" name=\"contacted_url\" value=\"1\" {% if company['contacted_via'].get('url') %}checked{% endif %}><label class=\"form-check-label\">Website form</label></div>
-          <div class=\"form-check form-check-inline\"><input class=\"form-check-input\" type=\"checkbox\" name=\"contacted_linkedin\" value=\"1\" {% if company['contacted_via'].get('linkedin') %}checked{% endif %}><label class=\"form-check-label\">LinkedIn</label></div>
-        </div>
+      </div>
         <div class=\"col-12 d-flex gap-2\"><button class=\"btn btn-primary\" type=\"submit\">Update</button><a class=\"btn btn-outline-secondary\" href=\"{{ url_for('board') }}\">Cancel</a></div>
       </form>
     </div></div>
@@ -1077,7 +1088,14 @@ def company_detail(cid):
     c = get_company(cid)
     if not c:
         return render_template_string(BASE_HTML, title='Not Found', body='<div class="alert alert-warning">Company not found.</div>')
-    body = render_template_string(DETAIL_HTML, company=c, statuses=ALL_STATUSES, owners=OWNERS, types=TYPES)
+    body = render_template_string(
+    DETAIL_HTML,
+    company=c,
+    statuses=ALL_STATUSES,
+    owners=OWNERS,
+    types=TYPES,
+    is_partner=(c.get('status') in PARTNER_STATUSES)
+)
     return render_template_string(BASE_HTML, title='Company Detail', body=body)
 
 @app.route('/company/<cid>', methods=['POST'])
