@@ -16,7 +16,8 @@ import uuid
 import csv
 import sqlite3
 from datetime import datetime
-from flask import Flask, request, redirect, url_for, render_template_string, jsonify, flash
+from flask import Flask, request, redirect, url_for, render_template_string, jsonify, flash, session
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
@@ -97,6 +98,22 @@ def ensure_storage():
         # defaults for prefs if missing
         cur.execute("INSERT OR IGNORE INTO prefs(key,value) VALUES('last_type', ?)", (TYPES[0],))
         cur.execute("INSERT OR IGNORE INTO prefs(key,value) VALUES('last_owner', ?)", (OWNERS[0],))
+
+        # users table
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT UNIQUE NOT NULL,
+          password_hash TEXT NOT NULL,
+          role TEXT NOT NULL CHECK(role IN ('Admin','Manager','Sales'))
+        )""")
+        # seed dev users if table empty
+        row = cur.execute("SELECT COUNT(*) AS n FROM users").fetchone()
+        if not row or row["n"] == 0:
+            cur.execute("INSERT INTO users(username,password_hash,role) VALUES(?,?,?)",
+                        ('oskars', generate_password_hash('K0k0k00la'), 'Admin'))
+            cur.execute("INSERT INTO users(username,password_hash,role) VALUES(?,?,?)",
+                        ('shawn', generate_password_hash('shawn123'), 'Manager'))
         con.commit()
 
 def row_to_company(row, notes_by_company=None, sources_by_company=None):
@@ -224,6 +241,42 @@ def norm_url(u):
         u = u[:-1]
     return u
 
+def current_user():
+    uid = session.get('user_id')
+    if not uid:
+        return None
+    with db() as con:
+        row = con.execute("SELECT id, username, role FROM users WHERE id=?", (uid,)).fetchone()
+    return dict(row) if row else None
+
+def login_required(fn):
+    from functools import wraps
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not current_user():
+            return redirect(url_for('login', next=request.path))
+        return fn(*args, **kwargs)
+    return wrapper
+
+def role_required(*roles):
+    from functools import wraps
+    @wraps
+    def deco(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            user = current_user()
+            if not user:
+                return redirect(url_for('login', next=request.path))
+            if roles and user['role'] not in roles:
+                flash('You do not have permission to access this page.')
+                return redirect(url_for('home'))
+            return fn(*args, **kwargs)
+        return wrapper
+    return deco
+
+@app.context_processor
+def inject_user():
+    return {'user': current_user()}
 # ------------------------ Templates ------------------------
 
 BASE_HTML = """
@@ -251,12 +304,18 @@ BASE_HTML = """
     <nav class=\"navbar navbar-expand-lg bg-body-tertiary mb-3\">
       <div class=\"container\">
         <a class=\"navbar-brand\" href=\"{{ url_for('board') }}\">Mini CRM</a>
-        <div class=\"d-flex gap-2\">
-          <a class="btn btn-primary" href="{{ url_for('add_company') }}">Add Company</a>
-          <a class="btn btn-outline-secondary" href="{{ url_for('board') }}">Lead Board</a>
-          <a class="btn btn-outline-secondary" href="{{ url_for('partners_board') }}">Partners Board</a>
-          <a class="btn btn-outline-secondary" href="{{ url_for('list_view') }}">List</a>
-          <a class="btn btn-outline-secondary" href="{{ url_for('import_csv') }}">Import</a>
+                <div class="d-flex gap-2">
+          {% if user %}
+            <span class="navbar-text me-2">Hi, {{ user.username }} ({{ user.role }})</span>
+            <a class="btn btn-primary" href="{{ url_for('add_company') }}">Add Company</a>
+            <a class="btn btn-outline-secondary" href="{{ url_for('board') }}">Lead Board</a>
+            <a class="btn btn-outline-secondary" href="{{ url_for('partners_board') }}">Partners Board</a>
+            <a class="btn btn-outline-secondary" href="{{ url_for('list_view') }}">List</a>
+            <a class="btn btn-outline-secondary" href="{{ url_for('import_csv') }}">Import</a>
+            <a class="btn btn-outline-danger" href="{{ url_for('logout') }}">Logout</a>
+          {% else %}
+            <a class="btn btn-outline-primary" href="{{ url_for('login') }}">Login</a>
+          {% endif %}
         </div>
       </div>
     </nav>
@@ -271,6 +330,30 @@ BASE_HTML = """
     <script src=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js\"></script>
   </body>
 </html>
+"""
+
+LOGIN_HTML = """
+<div class="row justify-content-center">
+  <div class="col-md-5">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h1 class="h4 mb-3">Sign in</h1>
+        <form method="post" action="{{ url_for('login', next=next_url) }}">
+          <div class="mb-3">
+            <label class="form-label">Username</label>
+            <input class="form-control" type="text" name="username" autofocus required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Password</label>
+            <input class="form-control" type="password" name="password" required>
+          </div>
+          <button class="btn btn-primary" type="submit">Sign in</button>
+          <a class="btn btn-link" href="{{ url_for('home') }}">Cancel</a>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
 """
 
 ADD_HTML = """
@@ -534,11 +617,13 @@ DETAIL_HTML = """
             Contacts ({{ company['notes'] | selectattr('category','equalto','Contacts') | list | length }})
           </button>
         </li>
+        {% if user and user.role == 'Admin' %}
         <li class="nav-item" role="presentation">
           <button class="nav-link" id="tab-agreements" data-bs-toggle="tab" data-bs-target="#pane-agreements" type="button" role="tab">
             Agreements ({{ company['notes'] | selectattr('category','equalto','Agreements') | list | length }})
           </button>
         </li>
+        {% endif %}
         <li class="nav-item" role="presentation">
           <button class="nav-link" id="tab-starred" data-bs-toggle="tab" data-bs-target="#pane-starred" type="button" role="tab">
             Starred ({{ company['notes'] | selectattr('starred') | list | length }})
@@ -663,6 +748,7 @@ DETAIL_HTML = """
           {% else %}<div class="text-muted">No notes yet.</div>{% endif %}
         </div>
 
+        {% if user and user.role == 'Admin' %}
         <div class="tab-pane fade" id="pane-agreements" role="tabpanel">
           {% set items = company['notes'] | selectattr('category', 'equalto', 'Agreements') | list %}
           {% if items %}
@@ -720,7 +806,7 @@ DETAIL_HTML = """
             </div>
           {% else %}<div class="text-muted">No notes yet.</div>{% endif %}
         </div>
-
+        {% endif %}
         <div class="tab-pane fade" id="pane-starred" role="tabpanel">
           {% set items = company['notes'] | selectattr('starred') | list %}
           {% if items %}
@@ -1007,7 +1093,30 @@ IMPORT_HTML = """
 def home():
     return redirect(url_for('board'))
 
+@app.route('/login', methods=['GET','POST'])
+def login():
+    next_url = request.args.get('next') or request.form.get('next') or url_for('home')
+    if request.method == 'POST':
+        username = (request.form.get('username') or '').strip()
+        password = request.form.get('password') or ''
+        with db() as con:
+            row = con.execute("SELECT id, username, password_hash, role FROM users WHERE username=?", (username,)).fetchone()
+        if row and check_password_hash(row['password_hash'], password):
+            session['user_id'] = row['id']
+            flash('Signed in.')
+            return redirect(next_url)
+        flash('Invalid credentials.')
+    body = render_template_string(LOGIN_HTML, next_url=next_url)
+    return render_template_string(BASE_HTML, title='Sign in', body=body, user=current_user())
+
+@app.route('/logout')
+def logout():
+    session.pop('user_id', None)
+    flash('Signed out.')
+    return redirect(url_for('login'))
+
 @app.route('/add', methods=['GET', 'POST'])
+@login_required
 def add_company():
     prefs = load_prefs()
     if request.method == 'POST':
@@ -1081,13 +1190,14 @@ def add_company():
     latest_sources = get_latest_sources(10)
     body = render_template_string(ADD_HTML, types=TYPES, owners=OWNERS, statuses=ALL_STATUSES,
       defaults=defaults, latest_sources=latest_sources)
-    return render_template_string(BASE_HTML, title='Add Company', body=body)
+    return render_template_string(BASE_HTML, title='Add Company', body=body, user=current_user())
 
 @app.route('/company/<cid>')
+@login_required
 def company_detail(cid):
     c = get_company(cid)
     if not c:
-        return render_template_string(BASE_HTML, title='Not Found', body='<div class="alert alert-warning">Company not found.</div>')
+        return render_template_string(BASE_HTML, title='Not Found', body='<div class="alert alert-warning">Company not found.</div>', user=current_user())
     body = render_template_string(
     DETAIL_HTML,
     company=c,
@@ -1096,9 +1206,10 @@ def company_detail(cid):
     types=TYPES,
     is_partner=(c.get('status') in PARTNER_STATUSES)
 )
-    return render_template_string(BASE_HTML, title='Company Detail', body=body)
+    return render_template_string(BASE_HTML, title='Company Detail', body=body, user=current_user())
 
 @app.route('/company/<cid>', methods=['POST'])
+@login_required
 def update_company(cid):
     prefs = load_prefs()
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -1143,6 +1254,7 @@ def update_company(cid):
     return redirect(url_for('company_detail', cid=cid))
 
 @app.route('/company/<cid>/note', methods=['POST'])
+@login_required
 def add_note(cid):
     note = (request.form.get('note') or '').strip()
     if not note:
@@ -1159,6 +1271,7 @@ def add_note(cid):
     return redirect(url_for('company_detail', cid=cid))
 
 @app.route('/company/<cid>/note/<nid>/star', methods=['POST'])
+@login_required
 def toggle_star(cid, nid):
     refer = request.form.get('from','')
     with db() as con:
@@ -1171,6 +1284,7 @@ def toggle_star(cid, nid):
     return redirect(url_for('company_detail', cid=cid) + (f"#{refer}" if refer else ""))
 
 @app.route('/company/<cid>/note/<nid>/edit', methods=['POST'])
+@login_required
 def edit_note(cid, nid):
     new_text = (request.form.get('text') or '').strip()
     new_category = (request.form.get('category') or 'General').strip() or 'General'
@@ -1189,6 +1303,7 @@ def edit_note(cid, nid):
     return redirect(url_for('company_detail', cid=cid))
 
 @app.route('/company/<cid>/note/<nid>/delete', methods=['POST'])
+@login_required
 def delete_note(cid, nid):
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
     with db() as con:
@@ -1198,6 +1313,7 @@ def delete_note(cid, nid):
     return redirect(url_for('company_detail', cid=cid))
 
 @app.route('/board')
+@login_required
 def board():
     data = load_data()
     # Only show leads (not partners)
@@ -1207,9 +1323,10 @@ def board():
                                   board_title='Lead Board',
                                   statuses=LEAD_STATUSES,
                                   companies=companies)
-    return render_template_string(BASE_HTML, title='Lead Board', body=body)
+    return render_template_string(BASE_HTML, title='Lead Board', body=body, user=current_user())
 
 @app.route('/partners')
+@login_required
 def partners_board():
     data = load_data()
     # Only show partner statuses
@@ -1219,9 +1336,10 @@ def partners_board():
                                   board_title='Partners Board',
                                   statuses=PARTNER_STATUSES,
                                   companies=companies)
-    return render_template_string(BASE_HTML, title='Partners Board', body=body)
+    return render_template_string(BASE_HTML, title='Partners Board', body=body, user=current_user())
 
 @app.route('/list')
+@login_required
 def list_view():
     data = load_data()
     q = (request.args.get('q') or '').strip().lower()
@@ -1278,9 +1396,10 @@ def list_view():
         caret=caret,
         next_dir=next_dir
     )
-    return render_template_string(BASE_HTML, title='Companies', body=body)
+    return render_template_string(BASE_HTML, title='Companies', body=body, user=current_user())
 
 @app.route('/company/<cid>/delete', methods=['POST'])
+@login_required
 def delete_company(cid):
     with db() as con:
         con.execute("DELETE FROM notes WHERE company_id=?", (cid,))
@@ -1291,6 +1410,7 @@ def delete_company(cid):
     return redirect(url_for('list_view'))
 
 @app.route('/mass_delete', methods=['POST'])
+@login_required
 def mass_delete():
     ids = request.form.getlist('ids')
     if not ids:
@@ -1308,6 +1428,7 @@ def mass_delete():
 
 # CSV import (unchanged; does not set sources)
 @app.route('/import', methods=['GET','POST'])
+@login_required
 def import_csv():
     if request.method == 'POST':
         f = request.files.get('file')
@@ -1374,10 +1495,11 @@ def import_csv():
         flash(f'Import finished. Added {added}, skipped {skipped}.')
         return redirect(url_for('list_view'))
     body = render_template_string(IMPORT_HTML)
-    return render_template_string(BASE_HTML, title='Import', body=body)
+    return render_template_string(BASE_HTML, title='Import', body=body, user=current_user())
 
 # API endpoints
 @app.route('/api/update_status', methods=['POST'])
+@login_required
 def api_update_status():
     try:
         payload = request.get_json(force=True)
@@ -1395,6 +1517,7 @@ def api_update_status():
         return jsonify({"ok": False, "error": str(e)})
 
 @app.route('/api/check_duplicate')
+@login_required
 def api_check_duplicate():
     name = request.args.get('name',''); url_ = request.args.get('url','')
     with db() as con:
