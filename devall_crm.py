@@ -290,6 +290,10 @@ BASE_HTML = """
     <script src=\"https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js\"></script>
     <style>
       body { background:#f8f9fa; }
+      /* Lighter placeholder text */
+      ::placeholder { color:#adb5bd !important; opacity:1; }
+      :-ms-input-placeholder { color:#adb5bd !important; }
+      ::-ms-input-placeholder { color:#adb5bd !important; }
       .kanban { display:grid; grid-template-columns:repeat(5, 1fr); gap:1rem; }
       .kanban-column { background:#fff; border-radius:.75rem; box-shadow:0 2px 12px rgba(0,0,0,.05); padding:.75rem; }
       .kanban-header { font-weight:700; font-size:1rem; margin-bottom:.5rem; display:flex; justify-content:space-between; align-items:center; }
@@ -301,21 +305,30 @@ BASE_HTML = """
     </style>
   </head>
   <body>
-    <nav class=\"navbar navbar-expand-lg bg-body-tertiary mb-3\">
+    <nav class=\"navbar navbar-expand-lg navbar-dark bg-dark mb-3\">
       <div class=\"container\">
         <a class=\"navbar-brand\" href=\"{{ url_for('board') }}\">Mini CRM</a>
-                <div class="d-flex gap-2">
-          {% if user %}
-            <span class="navbar-text me-2">Hi, {{ user.username }} ({{ user.role }})</span>
-            <a class="btn btn-primary" href="{{ url_for('add_company') }}">Add Company</a>
-            <a class="btn btn-outline-secondary" href="{{ url_for('board') }}">Lead Board</a>
-            <a class="btn btn-outline-secondary" href="{{ url_for('partners_board') }}">Partners Board</a>
-            <a class="btn btn-outline-secondary" href="{{ url_for('list_view') }}">List</a>
-            <a class="btn btn-outline-secondary" href="{{ url_for('import_csv') }}">Import</a>
-            <a class="btn btn-outline-danger" href="{{ url_for('logout') }}">Logout</a>
-          {% else %}
-            <a class="btn btn-outline-primary" href="{{ url_for('login') }}">Login</a>
-          {% endif %}
+        <button class=\"navbar-toggler\" type=\"button\" data-bs-toggle=\"collapse\" data-bs-target=\"#topNav\" aria-controls=\"topNav\" aria-expanded=\"false\" aria-label=\"Toggle navigation\">
+          <span class=\"navbar-toggler-icon\"></span>
+        </button>
+        <div class=\"collapse navbar-collapse\" id=\"topNav\">
+          <ul class=\"navbar-nav me-auto mb-2 mb-lg-0\">
+            {% if user %}
+              <li class=\"nav-item\"><a class=\"nav-link\" href=\"{{ url_for('add_company') }}\">Add Company</a></li>
+              <li class=\"nav-item\"><a class=\"nav-link\" href=\"{{ url_for('board') }}\">Lead Board</a></li>
+              <li class=\"nav-item\"><a class=\"nav-link\" href=\"{{ url_for('partners_board') }}\">Partners Board</a></li>
+              <li class=\"nav-item\"><a class=\"nav-link\" href=\"{{ url_for('list_view') }}\">List</a></li>
+              <li class=\"nav-item\"><a class=\"nav-link\" href=\"{{ url_for('import_csv') }}\">Import</a></li>
+            {% endif %}
+          </ul>
+          <div class=\"d-flex align-items-center\">
+            {% if user %}
+              <span class=\"navbar-text me-3\">Hi, {{ user.username }} ({{ user.role }})</span>
+              <a class=\"btn btn-sm btn-outline-light\" href=\"{{ url_for('logout') }}\">Logout</a>
+            {% else %}
+              <a class=\"btn btn-sm btn-outline-light\" href=\"{{ url_for('login') }}\">Login</a>
+            {% endif %}
+          </div>
         </div>
       </div>
     </nav>
