@@ -298,6 +298,24 @@ BASE_HTML = """
       .kanban-column { background:#fff; border-radius:.75rem; box-shadow:0 2px 12px rgba(0,0,0,.05); padding:.75rem; }
       .kanban-header { font-weight:700; font-size:1rem; margin-bottom:.5rem; display:flex; justify-content:space-between; align-items:center; }
       .card { cursor:pointer; }
+      /* Slightly more vertical spacing inside board cards */
+      .crm-card .card-body { padding-top:.5rem; padding-bottom:.6rem; }
+      /* Deterministic colors for source chips */
+      .chip[data-color="0"]{ background:#e8f5e9; color:#1b5e20; }
+      .chip[data-color="1"]{ background:#e3f2fd; color:#0d47a1; }
+      .chip[data-color="2"]{ background:#fff3e0; color:#e65100; }
+      .chip[data-color="3"]{ background:#f3e5f5; color:#4a148c; }
+      .chip[data-color="4"]{ background:#e0f7fa; color:#006064; }
+      .chip[data-color="5"]{ background:#fbe9e7; color:#bf360c; }
+      .chip[data-color="6"]{ background:#f1f8e9; color:#33691e; }
+      .chip[data-color="7"]{ background:#ede7f6; color:#311b92; }
+      .chip[data-color="8"]{ background:#e0f2f1; color:#004d40; }
+      .chip[data-color="9"]{ background:#fff8e1; color:#ff6f00; }
+      /* Type badge colors */
+      .badge-type[data-type="Marketing Agency"]{ background-color:#212529 !important; color:#fff !important; }
+      .badge-type[data-type="Agency"]{ background-color:#0d6efd !important; }
+      .badge-type[data-type="Direct Customer"]{ background-color:#198754 !important; }
+      .badge-type[data-type="Hosting Provider"]{ background-color:#6f42c1 !important; }
       .note { background:#fff; border-radius:.5rem; padding:.75rem; border:1px solid #e9ecef; }
       .badge-type { text-transform:capitalize; }
       .chip { display:inline-flex; align-items:center; gap:.35rem; padding:.15rem .5rem; border-radius:999px; background:#e9ecef; font-size:.85rem; }
@@ -340,6 +358,7 @@ BASE_HTML = """
       {% endwith %}
       {{ body|safe }}
     </div>
+    <footer class=\"text-center text-muted py-3 mt-4\"><div class=\"container\">Developers Alliance (c)</div></footer>
     <script src=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js\"></script>
   </body>
 </html>
@@ -409,6 +428,8 @@ ADD_HTML = """
               {% for s in statuses %}<option value=\"{{s}}\" {% if s=='New' %}selected{% endif %}>{{s}}</option>{% endfor %}
             </select>
           </div>
+
+          <div class=\"col-12\"><hr class=\"my-2\"></div>
 
           <div class=\"col-md-6\">
             <label class=\"form-label\">Company Name (optional)</label>
@@ -487,9 +508,14 @@ ADD_HTML = """
     let tags = Array.isArray(initial) ? initial.slice() : [];
     function render(){
       tagsBox.innerHTML = '';
+      function colorIndex(str){
+        let h=0; for(let i=0;i<str.length;i++){ h = (h*31 + str.charCodeAt(i)) >>> 0; }
+        return h % 10;
+      }
       tags.forEach((t,i)=>{
         const el = document.createElement('span');
         el.className = 'chip me-2 mb-2';
+        el.setAttribute('data-color', String(colorIndex(t.toLowerCase())));
         el.innerHTML = `<span>${t}</span><span class="x" data-i="${i}">&times;</span>`;
         tagsBox.appendChild(el);
       });
@@ -894,9 +920,14 @@ DETAIL_HTML = """
     try { tags = JSON.parse(hidden.value || '[]'); } catch(e){ tags = []; }
     function render(){
       tagsBox.innerHTML = '';
+      function colorIndex(str){
+        let h=0; for(let i=0;i<str.length;i++){ h = (h*31 + str.charCodeAt(i)) >>> 0; }
+        return h % 10;
+      }
       tags.forEach((t,i)=>{
         const el = document.createElement('span');
         el.className = 'chip me-2 mb-2';
+        el.setAttribute('data-color', String(colorIndex(t.toLowerCase())));
         el.innerHTML = `<span>${t}</span><span class="x" data-i="${i}">&times;</span>`;
         tagsBox.appendChild(el);
       });
@@ -940,10 +971,19 @@ BOARD_HTML = """
         <div class=\"card-body py-2\">
           <div class=\"d-flex justify-content-between align-items-center\">
             <div class=\"fw-semibold\">{{ c.get('name') or 'Unnamed' }}<br>
-              <span class=\"badge rounded-pill text-bg-secondary badge-type\">{{ c['type'] }}</span>
+              <span class=\"badge rounded-pill text-bg-secondary badge-type\" data-type=\"{{ c['type'] }}\">{{ c['type'] }}</span>
             </div>
           </div>
           <div class=\"small text-muted\">{{ c.get('email') or c.get('url') or '' }}</div>
+          {% if c.get('notes') %}
+            {% set last_note = (c.get('notes')|last).text %}
+            {% set words = last_note.split() %}
+            {% if words|length > 50 %}
+              <div class=\"small\">{{ words[:50]|join(' ') }}…</div>
+            {% else %}
+              <div class=\"small\">{{ last_note }}</div>
+            {% endif %}
+          {% endif %}
           <div class=\"small\"><span class=\"badge text-bg-warning\">{{ c.get('owner') or '-' }}</span></div>
         </div>
       </div>
